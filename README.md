@@ -1,6 +1,6 @@
 # Go-JMeter-API
 
-Go-JMeter-API is a web application that integrates JMeter with a Go backend, allowing users to run JMeter tests and view results through a web interface.
+Go-JMeter-API is a simple web application that integrates JMeter with a Go backend, allowing users to run JMeter tests and view results through a web interface.
 
 ## Features
 
@@ -52,8 +52,3 @@ Go-JMeter-API is a web application that integrates JMeter with a Go backend, all
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License.
-
