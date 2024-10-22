@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMeter Test Runner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        form {
+            display: grid;
+            gap: 10px;
+        }
+        button {
+            width: 200px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #testResults {
+            margin-top: 20px;
+        }
+        .test-result {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .test-result button {
+            margin-right: 10px;
+        }
+        #allReports {
+            margin-top: 20px;
+        }
+        #allReports ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #allReports li {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>JMeter Test Runner</h1>
+    <form id="testForm">
+        <label for="testPlan">Test Plan:</label>
+        <select id="testPlan" name="testPlan" required>
+            <!-- Options will be populated dynamically -->
+        </select>
+
+        <label for="threads">Number of Threads:</label>
+        <input type="number" id="threads" name="threads" value="1" min="1" required>
+
+        <label for="rampUp">Ramp-up Period (seconds):</label>
+        <input type="number" id="rampUp" name="rampUp" value="1" min="1" required>
+
+        <label for="duration">Duration (seconds):</label>
+        <input type="number" id="duration" name="duration" value="60" min="1" required>
+
+        <label for="targetHost">Target Host:</label>
+        <input type="text" id="targetHost" name="targetHost" value="https://httpbin.org" required>
+
+        <button type="submit">Run Test</button>
+    </form>
+
+    <div id="result"></div>
+    <div id="testResults"></div>
+    <div id="allReports">
+        <h2>All Reports</h2>
+        <ul id="reportList"></ul>
+    </div>
+    <div id="debugInfo" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px;"></div>
+
+    <script>
+        let testResults = [];
+
+        // Fetch test plans and populate the select element
+        fetch('/test-plans')
+            .then(response => response.json())
+            .then(testPlans => {
+                const select = document.getElementById('testPlan');
+                testPlans.forEach(plan => {
+                    const option = document.createElement('option');
+                    option.value = plan;
+                    option.textContent = plan;
+                    select.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching test plans:', error);
+                document.getElementById('result').innerHTML = '<p>Error loading test plans. Please try refreshing the page.</p>';
+            });
+
+        // Handle form submission
+        document.getElementById('testForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const payload = Object.fromEntries(formData.entries());
+            console.log('Sending payload:', payload);
+
+            document.getElementById('result').innerHTML = '<p><span class="spinner"></span>Running test, please wait...</p>';
+
+            try {
+                const response = await fetch('/run-test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                if (result.status === 'completed') {
+                    testResults.push(result);
+                    updateTestResults();
+                    document.getElementById('result').innerHTML = `
+                        <p>Test completed successfully.</p>
+                        <button onclick="viewReport('${result.reportUrl}')">View Report</button>
+                    `;
+                } else if (result.status === 'error') {
+                    document.getElementById('result').innerHTML = `<p>Error: ${result.message}</p>`;
+                }
+            } catch (error) {
+                console.error('Error running test:', error);
+                document.getElementById('result').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        });
+
+        function updateTestResults() {
+            const testResultsDiv = document.getElementById('testResults');
+            testResultsDiv.innerHTML = '<h2>Test Results</h2>';
+            testResults.forEach((result, index) => {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'test-result';
+                resultDiv.innerHTML = `
+                    <p>Test ${index + 1}: ${result.message}</p>
+                    <button onclick="viewReport('${result.reportUrl}')">View Report</button>
+                `;
+                testResultsDiv.appendChild(resultDiv);
+            });
+        }
+
+        function appendDebugInfo(message) {
+            const debugDiv = document.getElementById('debugInfo');
+            const p = document.createElement('p');
+            p.textContent = message;
+            debugDiv.appendChild(p);
+        }
+
+        async function generateReport(index) {
+            const result = testResults[index];
+            appendDebugInfo(`Sending generate report request for testId: ${result.testId}`);
+            try {
+                const response = await fetch('/generate-report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ testId: result.testId }),
+                });
+
+                appendDebugInfo(`Received response status: ${response.status}`);
+                const responseText = await response.text();
+                appendDebugInfo(`Raw response: ${responseText}`);
+
+                let updatedResult;
+                try {
+                    updatedResult = JSON.parse(responseText);
+                    appendDebugInfo(`Parsed response: ${JSON.stringify(updatedResult)}`);
+                } catch (parseError) {
+                    appendDebugInfo(`Error parsing JSON: ${parseError}`);
+                    throw new Error(`Invalid JSON response: ${parseError.message}`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${updatedResult.message || 'Unknown error'}`);
+                }
+
+                testResults[index] = updatedResult;
+                updateTestResults();
+            } catch (error) {
+                appendDebugInfo(`Error generating report: ${error.message}`);
+                alert('Error generating report: ' + error.message);
+            }
+        }
+
+        function viewReport(reportUrl) {
+            if (reportUrl) {
+                window.open(reportUrl, '_blank');
+            }
+        }
+
+        // Function to fetch and display all reports
+        async function fetchAllReports() {
+            try {
+                const response = await fetch('/list-reports');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const reports = await response.json();
+                const reportList = document.getElementById('reportList');
+                reportList.innerHTML = '';
+                reports.forEach(report => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<a href="/reports/${report}/index.html" target="_blank">${report}</a>`;
+                    reportList.appendChild(li);
+                });
+            } catch (error) {
+                console.error('Error fetching reports:', error);
+                document.getElementById('reportList').innerHTML = '<li>Error loading reports</li>';
+            }
+        }
+
+        // Call fetchAllReports when the page loads
+        fetchAllReports();
+
+        // Update fetchAllReports call after running a test
+        document.getElementById('testForm').addEventListener('submit', async (e) => {
+            // ... existing submit event listener code ...
+
+            // After the test is complete and results are updated
+            if (result.status === 'completed') {
+                testResults.push(result);
+                updateTestResults();
+                document.getElementById('result').innerHTML = `
+                    <p>Test completed successfully.</p>
+                    <button onclick="viewReport('${result.reportUrl}')">View Report</button>
+                `;
+                // Fetch all reports again to update the list
+                fetchAllReports();
+            }
+
+            // ... rest of the submit event listener ...
+        });
+    </script>
+</body>
+</html>
